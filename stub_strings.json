@@ -1,0 +1,26 @@
+{
+  "blocked": [
+    "dnspy", "dnspy-x86", "ilspy", "dotpeek", "dotpeek32", "dotpeek64",
+    "x64dbg", "x32dbg", "ollydbg", "processhacker", "cheatengine",
+    "cheatengine-x86_64", "fiddler", "procmon", "procmon64",
+    "ida", "ida64", "idag", "idag64", "ghidra", "justdecompile", "reflector"
+  ],
+  "strings": {
+    "__S_DBG1__": "DBG1",
+    "__S_DBG2__": "DBG2",
+    "__S_DBG3__": "DBG3",
+    "__S_NETERR__": "Không thể kết nối máy chủ cập nhật Jebtool (kiểm tra kết nối Internet).",
+    "__S_BADDATA__": "Dữ liệu máy chủ không hợp lệ hoặc đã bị gián đoạn.",
+    "__S_TAMPER__": "Phát hiện tệp Jebtool.exe hoặc dữ liệu máy chủ đã bị chỉnh sửa / can thiệp!",
+    "__S_DBGPFX__": "Phát hiện công cụ gỡ lỗi / dịch ngược (",
+    "__S_DBGSFX__": ")!\r\nJebtool sẽ tự động đóng để bảo vệ mã nguồn.",
+    "__S_DBGTIT__": "Jebtool — Bảo vệ mã nguồn",
+    "__S_PSROOT__": "PSScriptRoot",
+    "__S_EP__": "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force -ErrorAction SilentlyContinue",
+    "__S_RUNERR__": "Đã xảy ra lỗi khi chạy Jebtool:\r\n\r\n",
+    "__S_RUNTIT__": "Jebtool — Lỗi thực thi",
+    "__S_STERR__": "Không thể khởi động Jebtool:\r\n",
+    "__S_STTIT__": "Jebtool — Bảo mật",
+    "__S_UA__": "Jebtool-Client/2.0"
+  }
+}
