@@ -1,0 +1,100 @@
+name: Auto Build Encrypted Jebtool Payload
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Jebtool.ps1'
+      - 'version.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-payload:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Encrypt Jebtool.ps1 -> jebtool.bin
+        shell: pwsh
+        env:
+          JEB_MASTER_B64: ${{ secrets.JEB_MASTER_B64 }}
+          JEB_ILHASH_B64: ${{ secrets.JEB_ILHASH_B64 }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:JEB_MASTER_B64 -or -not $env:JEB_ILHASH_B64) {
+            throw "Thiếu GitHub Secrets: JEB_MASTER_B64 hoặc JEB_ILHASH_B64!"
+          }
+          $masterRaw = [Convert]::FromBase64String($env:JEB_MASTER_B64.Trim())
+          $ilHash    = [Convert]::FromBase64String($env:JEB_ILHASH_B64.Trim())
+
+          $rawText = [System.IO.File]::ReadAllText('Jebtool.ps1', [System.Text.Encoding]::UTF8)
+          $tokens = $null; $errs = $null
+          [void][System.Management.Automation.Language.Parser]::ParseInput($rawText, [ref]$tokens, [ref]$errs)
+          if ($errs.Count -gt 0) { throw "Jebtool.ps1 có $($errs.Count) lỗi cú pháp!" }
+
+          $cts = $tokens | Where-Object { $_.Kind -eq [System.Management.Automation.Language.TokenKind]::Comment } | Sort-Object { $_.Extent.StartOffset } -Descending
+          $sb = New-Object System.Text.StringBuilder($rawText)
+          foreach ($ct in $cts) {
+            $s = $ct.Extent.StartOffset; $l = $ct.Extent.EndOffset - $s
+            if ($s -ge 0 -and ($s + $l) -le $sb.Length) { [void]$sb.Remove($s, $l) }
+          }
+          $stripped = $sb.ToString()
+          $sErrs = $null
+          [void][System.Management.Automation.Language.Parser]::ParseInput($stripped, [ref]$null, [ref]$sErrs)
+          if ($sErrs.Count -gt 0) { $stripped = $rawText }
+
+          $plain = [System.Text.Encoding]::UTF8.GetBytes($stripped)
+          $msGz = New-Object System.IO.MemoryStream
+          $gz = New-Object System.IO.Compression.GZipStream($msGz, [System.IO.Compression.CompressionMode]::Compress)
+          $gz.Write($plain, 0, $plain.Length); $gz.Close()
+          $comp = $msGz.ToArray(); $msGz.Dispose()
+
+          $sha = [System.Security.Cryptography.SHA256]::Create()
+          $eIn = New-Object byte[] (32 + $ilHash.Length + 2)
+          [Buffer]::BlockCopy($masterRaw, 0, $eIn, 0, 32)
+          [Buffer]::BlockCopy($ilHash, 0, $eIn, 32, $ilHash.Length)
+          $eIn[32 + $ilHash.Length] = 0x45; $eIn[32 + $ilHash.Length + 1] = 0x33
+          $ek = $sha.ComputeHash($eIn)
+
+          $mIn = New-Object byte[] (32 + $ilHash.Length + 2)
+          [Buffer]::BlockCopy($masterRaw, 0, $mIn, 0, 32)
+          [Buffer]::BlockCopy($ilHash, 0, $mIn, 32, $ilHash.Length)
+          $mIn[32 + $ilHash.Length] = 0x4D; $mIn[32 + $ilHash.Length + 1] = 0x33
+          $mk = $sha.ComputeHash($mIn)
+          $sha.Dispose()
+
+          $aes = [System.Security.Cryptography.Aes]::Create()
+          $aes.KeySize = 256; $aes.Mode = 'CBC'; $aes.Padding = 'PKCS7'; $aes.Key = $ek; $aes.GenerateIV()
+          $iv = $aes.IV
+          $msEnc = New-Object System.IO.MemoryStream
+          $cs = New-Object System.Security.Cryptography.CryptoStream($msEnc, $aes.CreateEncryptor(), [System.Security.Cryptography.CryptoStreamMode]::Write)
+          $cs.Write($comp, 0, $comp.Length); $cs.FlushFinalBlock()
+          $cipher = $msEnc.ToArray()
+          $cs.Dispose(); $msEnc.Dispose(); $aes.Dispose()
+
+          $macIn = New-Object byte[] (16 + $cipher.Length)
+          [Buffer]::BlockCopy($iv, 0, $macIn, 0, 16)
+          [Buffer]::BlockCopy($cipher, 0, $macIn, 16, $cipher.Length)
+          $hmac = New-Object System.Security.Cryptography.HMACSHA256(, $mk)
+          $mac = $hmac.ComputeHash($macIn)
+          $hmac.Dispose()
+
+          $raw = New-Object byte[] (48 + $cipher.Length)
+          [Buffer]::BlockCopy($iv, 0, $raw, 0, 16)
+          [Buffer]::BlockCopy($mac, 0, $raw, 16, 32)
+          [Buffer]::BlockCopy($cipher, 0, $raw, 48, $cipher.Length)
+          for ($i = 0; $i -lt $raw.Length; $i++) {
+            $raw[$i] = [byte]($raw[$i] -bxor (($i * 37 + 0xA3) -band 0xFF))
+          }
+          [System.IO.File]::WriteAllBytes('jebtool.bin', $raw)
+
+      - name: Commit & Push jebtool.bin
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add jebtool.bin
+          git diff --staged --quiet || (git commit -m "Auto-build jebtool.bin [skip ci]" && git push)
